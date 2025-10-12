@@ -1,8 +1,7 @@
 streamlit
 pandas
-psycopg2-binary
-sqlalchemy
+numpy
 plotly
 prophet
-googletrans==4.0.0-rc1
-python-dotenv
+deep-translator
+redshift-connector
