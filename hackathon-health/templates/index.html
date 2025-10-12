@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🏥 Stock-Out Risk Predictor</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}" />
+  </head>
+  <body>
+    <nav>
+      <h1>🏥 Health Facility Stock Monitor</h1>
+    </nav>
+
+    <div class="container">
+      <div class="header">
+        <h2>Stock-Out Risk Predictor</h2>
+        <p>Select a facility and item to view real-time risk assessment</p>
+      </div>
+
+      <form
+        id="predictionForm"
+        method="post"
+        action="/predict"
+        class="form-grid"
+      >
+        <!-- Left Column -->
+        <div class="form-group">
+          <label for="facility_id">Facility ID</label>
+          <select
+            id="facility_id"
+            name="facility_id"
+            required
+            onchange="loadItems()"
+          >
+            <option value="">-- Select Facility --</option>
+            {% for fid in facilities %}
+            <option value="{{ fid }}">{{ fid }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="item_name">Item Name</label>
+          <select
+            id="item_name"
+            name="item_name"
+            required
+            onchange="loadItemDetails()"
+          >
+            <option value="">-- Select Facility First --</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="current_stock_level">Current Stock Level</label>
+          <input
+            type="number"
+            id="current_stock_level"
+            name="current_stock_level"
+            step="1"
+            required
+            readonly
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="reorder_level">Reorder Level</label>
+          <input
+            type="number"
+            id="reorder_level"
+            name="reorder_level"
+            step="1"
+            required
+            readonly
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="last_restock_date">Last Restock Date</label>
+          <input
+            type="date"
+            id="last_restock_date"
+            name="last_restock_date"
+            required
+            readonly
+          />
+        </div>
+
+        <!-- Full-width button -->
+        <button type="submit" class="submit-btn">
+          🔍 Predict Stock-Out Risk
+        </button>
+      </form>
+
+      {% if prediction %}
+      <div class="result">
+        <h3>📊 Prediction Result</h3>
+        <p>
+          <strong>Stock-out Probability (30 days):</strong> {{
+          prediction.probability }}
+        </p>
+        <p>
+          <strong>Predicted Days Until Stockout:</strong> {{
+          prediction.days_until_stockout }} days
+        </p>
+        <p>
+          <strong>Risk Level:</strong>
+          <span
+            class="{% if prediction.risk_level == 'High' %}risk-high {% elif prediction.risk_level == 'Medium' %}risk-medium {% else %}risk-low{% endif %}"
+          >
+            {{ prediction.risk_level }}
+          </span>
+        </p>
+      </div>
+      {% endif %}
+
+      <footer>
+        <p>
+          © 2025 Health Supply Chain AI | Built for Public Health Facilities
+        </p>
+      </footer>
+    </div>
+
+    <script>
+      async function loadItems() {
+        const facilityId = document.getElementById("facility_id").value;
+        const itemSelect = document.getElementById("item_name");
+        itemSelect.innerHTML = '<option value="">Loading...</option>';
+
+        if (!facilityId) {
+          itemSelect.innerHTML =
+            '<option value="">-- Select Facility --</option>';
+          return;
+        }
+
+        try {
+          const response = await fetch(`/api/items/${facilityId}`);
+          const data = await response.json();
+
+          if (data.error) {
+            itemSelect.innerHTML = '<option value="">No items found</option>';
+            return;
+          }
+
+          let options = '<option value="">-- Select Item --</option>';
+          data.items.forEach((item) => {
+            options += `<option value="${item.item_name}">${item.item_name}</option>`;
+          });
+          itemSelect.innerHTML = options;
+        } catch (err) {
+          itemSelect.innerHTML =
+            '<option value="">Error loading items</option>';
+        }
+      }
+
+      async function loadItemDetails() {
+        const facilityId = document.getElementById("facility_id").value;
+        const itemName = document.getElementById("item_name").value;
+
+        if (!facilityId || !itemName) return;
+
+        try {
+          const response = await fetch(
+            `/api/item-details/${facilityId}/${itemName}`
+          );
+          const data = await response.json();
+
+          if (data.error) {
+            alert("Item not found");
+            return;
+          }
+
+          document.getElementById("current_stock_level").value =
+            data.stock_level;
+          document.getElementById("reorder_level").value = data.reorder_level;
+          document.getElementById("last_restock_date").value =
+            data.last_restock_date;
+        } catch (err) {
+          alert("Failed to load item details");
+        }
+      }
+    </script>
+  </body>
+</html>
