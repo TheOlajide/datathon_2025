@@ -2,7 +2,7 @@ Overview
 ========
 Data Engineering Pipeline — Datafest Hackathon 2025 (Team XYZ)
 
-![Architecture Diagram](architecture diagram/architecture diagram/Datathon architecture diagram.drawio (5).png)
+![Architecture Diagram](architecture_diagram/diagram.png)
 
 This project implements a data engineering pipeline that automates the flow of raw data from Amazon S3 into Amazon Redshift, transforms it using dbt (Data Build Tool), and orchestrates the entire process with Apache Airflow.
 
