@@ -125,96 +125,140 @@ if tab_selection == "Facility Dashboard":
 # -----------------------------
 # 2. PHC Chatbot
 # -----------------------------
-elif tab_selection == "PHC Chatbot":
+# -------------------------------
+# AI Chatbot Tab (Smart Version)
+# -------------------------------
+if tab_selection == "PHC Chatbot":
     st.header("🤖 PHC AI Chatbot Assistant")
+
+    # Keep chat history in session state
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
+    # Language selection
     lang = st.selectbox("Select Language", list(LANG_MAP.keys()), index=0)
-    user_input = st.chat_input("Ask about facilities, stock, workers, patients, or diseases...")
+
+    # User input
+    user_input = st.chat_input("Ask a question about facilities, stock, workers, patients, or diseases...")
 
     if user_input:
         st.chat_message("user").write(user_input)
         query = user_input.lower()
         response = "I’m not sure how to answer that yet."
 
-        # Facility match (optional)
-        facility_match = [name for name in facilities_df["facility_name"] if name.lower() in query]
+        # -----------------------
+        # Filter only Functional / Partially Functional facilities
+        # -----------------------
+        operational_facilities = facilities_df[
+            facilities_df["operational_status"].str.lower().isin(["functional", "partially functional"])
+        ]
+
+        # -----------------------
+        # Facility Detection
+        # -----------------------
+        facility_match = [name for name in operational_facilities["facility_name"] if name.lower() in query]
         f_id = None
         if facility_match:
             facility_name = facility_match[0]
-            f_id = facilities_df[facilities_df["facility_name"] == facility_name]["facility_id"].values[0]
+            f_id = operational_facilities[operational_facilities["facility_name"] == facility_name]["facility_id"].values[0]
 
-        # Stock queries
-        if any(word in query for word in ["stock", "inventory", "medicine", "item"]):
-            filtered_inventory = inventory_df.copy()
-            if f_id:
-                filtered_inventory = filtered_inventory[filtered_inventory["facility_id"] == f_id]
-            item_match = [item for item in filtered_inventory["item_name"] if item.lower() in query]
-            if item_match:
-                item_name = item_match[0]
-                records = filtered_inventory[filtered_inventory["item_name"] == item_name]
-                response_lines = []
-                for _, r in records.iterrows():
-                    color = "green" if r["stock_level"] >= r["reorder_level"] else "red"
-                    facility_name_r = facilities_df[facilities_df["facility_id"] == r["facility_id"]]["facility_name"].values[0]
-                    response_lines.append(
-                        f"**{item_name}** in **{facility_name_r}**: Stock: <span style='color:{color}'>{r['stock_level']}</span>, Reorder: {r['reorder_level']}"
-                    )
-                response = "\n".join(response_lines)
-            else:
-                response = "No matching stock records found."
+        # -----------------------
+        # Stock / Inventory Queries
+        # -----------------------
+        if any(word in query for word in ["stock", "inventory", "medicine", "item", "paracetamol"]):
+            filtered_facilities = operational_facilities.copy()
 
-        # Operational queries
-        elif any(word in query for word in ["operational", "in operation", "running", "active"]):
-            filtered_facilities = facilities_df.copy()
-            for state in facilities_df["state"].unique():
+            # Filter by state/LGA if mentioned
+            for state in operational_facilities["state"].unique():
                 if state.lower() in query:
                     filtered_facilities = filtered_facilities[filtered_facilities["state"].str.lower() == state.lower()]
-            for lga in facilities_df["lga"].unique():
+            for lga in operational_facilities["lga"].unique():
                 if lga.lower() in query:
                     filtered_facilities = filtered_facilities[filtered_facilities["lga"].str.lower() == lga.lower()]
-            if f_id:
-                filtered_facilities = filtered_facilities[filtered_facilities["facility_id"] == f_id]
+
+            if filtered_facilities.empty:
+                response = "No operational facilities found in the specified location."
+            else:
+                stock_results = []
+                for _, fac in filtered_facilities.iterrows():
+                    f_items = inventory_df[inventory_df["facility_id"] == fac["facility_id"]]
+                    item_match = [item for item in f_items["item_name"] if item.lower() in query]
+                    if item_match:
+                        item_name = item_match[0]
+                        stock_level = f_items[f_items["item_name"] == item_name]["stock_level"].values[0]
+                        reorder_level = f_items[f_items["item_name"] == item_name]["reorder_level"].values[0]
+                        color = "green" if int(stock_level) >= int(reorder_level) else "red"
+                        stock_results.append(
+                            f"**{item_name}** in **{fac['facility_name']}**: Stock: <span style='color:{color}'>{stock_level}</span>, Reorder Level: {reorder_level}"
+                        )
+                response = "\n".join(stock_results) if stock_results else "No matching items found in these facilities."
+
+        # -----------------------
+        # Operational Status Queries
+        # -----------------------
+        elif any(word in query for word in ["operational", "running", "active", "in operation"]):
+            filtered_facilities = operational_facilities.copy()
+            for state in operational_facilities["state"].unique():
+                if state.lower() in query:
+                    filtered_facilities = filtered_facilities[filtered_facilities["state"].str.lower() == state.lower()]
+            for lga in operational_facilities["lga"].unique():
+                if lga.lower() in query:
+                    filtered_facilities = filtered_facilities[filtered_facilities["lga"].str.lower() == lga.lower()]
+
             if not filtered_facilities.empty:
                 response = "Operational Facilities:\n" + ", ".join(filtered_facilities["facility_name"].tolist())
             else:
-                response = "No operational facilities found."
+                response = "No operational facilities found for the specified location."
 
-        # Health worker queries
+        # -----------------------
+        # Health Worker Queries
+        # -----------------------
         elif any(word in query for word in ["worker", "doctor", "nurse", "staff"]):
-            filtered_workers = workers_df.copy()
             if f_id:
-                filtered_workers = filtered_workers[filtered_workers["facility_id"] == f_id]
-            role_match = [role for role in filtered_workers["role"].unique() if role.lower() in query]
-            if role_match:
-                filtered_workers = filtered_workers[filtered_workers["role"].str.lower() == role_match[0].lower()]
-            if not filtered_workers.empty:
-                response = ", ".join(filtered_workers["name"].tolist())
+                workers_in_facility = workers_df[workers_df["facility_id"] == f_id]
+                role_match = [role for role in workers_in_facility["role"].unique() if role.lower() in query]
+                if role_match:
+                    filtered_workers = workers_in_facility[workers_in_facility["role"].str.lower() == role_match[0].lower()]
+                    response = f"{role_match[0].capitalize()}s in **{facility_name}**:\n" + ", ".join(filtered_workers["name"].tolist())
+                else:
+                    response = f"Health Workers in **{facility_name}**:\n" + ", ".join(workers_in_facility["name"].tolist())
             else:
-                response = "No workers found for the query."
+                response = "Please specify a facility to see its health workers."
 
-        # Patient queries
+        # -----------------------
+        # Patient / Visit Queries
+        # -----------------------
         elif any(word in query for word in ["patient", "visit", "attendance"]):
-            filtered_patients = patients_df.copy()
             if f_id:
-                filtered_patients = filtered_patients[filtered_patients["facility_id"] == f_id]
-            response = f"Total patient visits: {len(filtered_patients)}"
-
-        # Disease queries
-        elif any(word in query for word in ["disease", "cases", "malaria", "cholera"]):
-            filtered_diseases = diseases_df.copy()
-            if f_id:
-                filtered_diseases = filtered_diseases[filtered_diseases["facility_id"] == f_id]
-            disease_match = [d for d in filtered_diseases["disease"].unique() if d.lower() in query]
-            if disease_match:
-                disease_name = disease_match[0]
-                total_cases = filtered_diseases[filtered_diseases["disease"] == disease_name]["cases_reported"].sum()
-                response = f"Total **{disease_name}** cases: {total_cases}"
+                facility_patients = patients_df[patients_df["facility_id"] == f_id]
+                if "last month" in query:
+                    last_month = pd.Timestamp.now() - pd.DateOffset(months=1)
+                    facility_patients = facility_patients[facility_patients["visit_date"].dt.month == last_month.month]
+                response = f"Total patient visits in **{facility_name}**: {len(facility_patients)}"
             else:
-                response = "No matching disease records found."
+                response = "Please specify a facility to check patient visits."
 
+        # -----------------------
+        # Disease / Forecast Queries
+        # -----------------------
+        elif any(word in query for word in ["disease", "cases", "malaria", "cholera"]):
+            if f_id:
+                disease_match = [d for d in diseases_df["disease"].unique() if d.lower() in query]
+                if disease_match:
+                    disease_name = disease_match[0]
+                    cases = diseases_df[(diseases_df["disease"] == disease_name) & (diseases_df["facility_id"] == f_id)]["cases_reported"].sum()
+                    response = f"Total **{disease_name}** cases reported in **{facility_name}**: {cases}"
+                else:
+                    response = "Please specify a disease name."
+            else:
+                response = "Please specify a facility to check disease cases."
+
+        # -----------------------
+        # Translate response
+        # -----------------------
         response_translated = translate_text(response, lang)
+
+        # Display assistant message
         st.chat_message("assistant").markdown(response_translated, unsafe_allow_html=True)
 
 # -----------------------------
