@@ -76,6 +76,7 @@ Exploratory Data Analysis and Report
 - To explore our findings based on the dataset, here is a link to our powerbi interactive dashboard. click [Team XYZ PHC report](https://app.powerbi.com/view?r=eyJrIjoiNzQ4Yjg2ZDEtMTMyOS00NzdkLTg4ZTUtNGNkYWIwMzhjNzQ4IiwidCI6ImQwMjZkZjkxLTg4MTYtNDIyNS04YmIyLWMzODJhOGUxZWYwYyJ9).
 - To read an explicit report on our finding, click here [Data_Analysis_Report](Data_analysis_report.pdf)
 - To interact with our AI model click [AI Model](https://datathon2025-42evmbyj3noewwrz3bcj55.streamlit.app/)
+- To read report on AI solution, click here[AI_solution_report](PHC_AI_dashboard_and_chatbox_report.pdf)
 
 
 Notes
