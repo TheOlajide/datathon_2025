@@ -1,251 +1,164 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 from prophet import Prophet
-from sqlalchemy import create_engine
-from googletrans import Translator
-from datetime import datetime
+from deep_translator import GoogleTranslator
+import redshift_connector
+from datetime import timedelta
 
-# ------------------------------
-# DATABASE CONNECTION
-# ------------------------------
-host = "dfa-datafest.962626097808.eu-north-1.redshift-serverless.amazonaws.com"
-port = 5439
-dbname = "dev"
-user = "admin"
-password = "Newpassword0703"
+# -------------------------------------------------
+# Database Connection (Amazon Redshift Serverless)
+# -------------------------------------------------
+REDSHIFT_HOST = "dfa-datafest.962626097808.eu-north-1.redshift-serverless.amazonaws.com"
+REDSHIFT_PORT = 5439
+REDSHIFT_DB = "datafest"
+REDSHIFT_USER = "admin"
+REDSHIFT_PASSWORD = "Newpassword0703"
 
+TABLE_FACILITIES = "staging.staging_nigeria_phc"
+TABLE_WORKERS = "staging.staging_health_workers"
+TABLE_PATIENTS = "staging.staging_patients_dataset"
+TABLE_DISEASES = "staging.staging_disease_report"
+TABLE_INVENTORY = "staging.staging_inventory_dataset"
+
+# -------------------------------------------------
+# Translation (Deep Translator)
+# -------------------------------------------------
+LANG_MAP = {"English": "en", "Igbo": "ig", "Yoruba": "yo", "Hausa": "ha"}
+
+def translate_text(text, lang):
+    if lang == "English":
+        return text
+    try:
+        return GoogleTranslator(source="auto", target=LANG_MAP.get(lang, "en")).translate(text)
+    except Exception:
+        return text
+
+# -------------------------------------------------
+# Connect and Load Data from Redshift
+# -------------------------------------------------
 @st.cache_data(ttl=3600)
-def load_data():
-    engine = create_engine(f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}")
-    facilities = pd.read_sql("SELECT * FROM phc_facilities", engine)
-    workers = pd.read_sql("SELECT * FROM health_workers", engine)
-    patients = pd.read_sql("SELECT * FROM patients", engine)
-    disease_reports = pd.read_sql("SELECT * FROM disease_reports", engine)
-    inventory = pd.read_sql("SELECT * FROM inventory", engine)
-    return facilities, workers, patients, disease_reports, inventory
+def load_all_tables():
+    conn = redshift_connector.connect(
+        host=REDSHIFT_HOST,
+        port=REDSHIFT_PORT,
+        database=REDSHIFT_DB,
+        user=REDSHIFT_USER,
+        password=REDSHIFT_PASSWORD
+    )
+    cursor = conn.cursor()
 
-facilities_df, workers_df, patients_df, disease_df, inventory_df = load_data()
-translator = Translator()
+    def read_table(table_name):
+        query = f"SELECT * FROM {table_name};"
+        cursor.execute(query)
+        columns = [desc[0] for desc in cursor.description]
+        data = cursor.fetchall()
+        return pd.DataFrame(data, columns=columns)
 
-# ------------------------------
-# DASHBOARD SETUP
-# ------------------------------
+    facilities = read_table(TABLE_FACILITIES)
+    workers = read_table(TABLE_WORKERS)
+    patients = read_table(TABLE_PATIENTS)
+    diseases = read_table(TABLE_DISEASES)
+    inventory = read_table(TABLE_INVENTORY)
+
+    cursor.close()
+    conn.close()
+
+    # Normalize columns
+    for df in (facilities, workers, patients, diseases, inventory):
+        df.columns = [c.lower() for c in df.columns]
+
+    # Parse dates
+    if "visit_date" in patients.columns:
+        patients["visit_date"] = pd.to_datetime(patients["visit_date"], errors="coerce")
+    if "month" in diseases.columns:
+        diseases["month_dt"] = pd.to_datetime(diseases["month"], errors="coerce")
+    if "last_restock_date" in inventory.columns:
+        inventory["last_restock_date"] = pd.to_datetime(inventory["last_restock_date"], errors="coerce")
+
+    return facilities, workers, patients, diseases, inventory
+
+facilities_df, workers_df, patients_df, diseases_df, inventory_df = load_all_tables()
+
+# -------------------------------------------------
+# Streamlit UI
+# -------------------------------------------------
 st.set_page_config(page_title="PHC AI Dashboard", layout="wide")
-st.title("PHC AI Dashboard")
 
-tabs = st.tabs(["Facilities", "Patients", "Health Workers", "Inventory", "Disease Reports", "Chatbot"])
+st.title("🏥 PHC AI Data Dashboard (Redshift Serverless)")
 
-# ------------------------------
-# FACILITY FILTER WIDGET
-# ------------------------------
-selected_facility = st.selectbox(
-    "Select Facility for All Views",
-    ["All"] + list(facilities_df['facility_name'].unique())
-)
+tabs = st.tabs(["📊 Facility Dashboard", "🤖 AI Chatbot", "📈 Forecasting"])
 
-def filter_by_facility(df, facility_col='facility_id'):
-    if selected_facility != "All":
-        fid = facilities_df[facilities_df['facility_name'] == selected_facility]['facility_id'].values[0]
-        return df[df[facility_col] == fid]
-    return df
-
-# ------------------------------
-# 1. FACILITIES TAB
-# ------------------------------
+# -------------------------------------------------
+# Facility Dashboard
+# -------------------------------------------------
 with tabs[0]:
-    st.header("Facilities Overview")
-    filtered_facilities = facilities_df.copy()
-    selected_state = st.selectbox("Filter by State", ["All"] + list(facilities_df['state'].unique()), key="state")
-    if selected_state != "All":
-        filtered_facilities = filtered_facilities[filtered_facilities['state'] == selected_state]
+    st.header("Facility Overview")
 
-    fig = px.scatter_mapbox(
-        filtered_facilities,
-        lat="latitude",
-        lon="longitude",
-        color="operational_status",
-        hover_name="facility_name",
-        hover_data=["ownership", "type"],
-        zoom=4,
-        height=500
-    )
-    fig.update_layout(mapbox_style="open-street-map")
-    st.plotly_chart(fig)
-    st.dataframe(filtered_facilities)
+    facility_name = st.selectbox("Select a PHC facility", facilities_df["facility_name"].unique())
+    selected_facility = facilities_df[facilities_df["facility_name"] == facility_name]
+    facility_id = selected_facility["facility_id"].values[0]
 
-    st.download_button(
-        label="Download Facilities CSV",
-        data=filtered_facilities.to_csv(index=False).encode('utf-8'),
-        file_name='facilities.csv',
-        mime='text/csv'
-    )
+    st.subheader(f"📍 {facility_name}")
 
-# ------------------------------
-# 2. PATIENTS TAB
-# ------------------------------
+    # Workers per facility
+    workers_in_facility = workers_df[workers_df["facility_id"] == facility_id]
+    st.metric("👩‍⚕️ Number of Health Workers", len(workers_in_facility))
+
+    # Inventory status
+    inventory_in_facility = inventory_df[inventory_df["facility_id"] == facility_id]
+    st.dataframe(inventory_in_facility[["item_name", "stock_level", "reorder_level"]])
+
+    # Patient visits chart
+    facility_patients = patients_df[patients_df["facility_id"] == facility_id]
+    if not facility_patients.empty:
+        visits = facility_patients.groupby("visit_date").size().reset_index(name="visits")
+        st.plotly_chart(px.line(visits, x="visit_date", y="visits", title="📅 Patient Visits Over Time"))
+
+# -------------------------------------------------
+# Chatbot
+# -------------------------------------------------
 with tabs[1]:
-    st.header("Patient Statistics")
-    patients_filtered = filter_by_facility(patients_df)
-    patients_filtered['visit_date'] = pd.to_datetime(patients_filtered['visit_date'])
-    
-    # Patient visits over time
-    st.subheader("Patient Visits Over Time")
-    visits = patients_filtered.groupby('visit_date').size().reset_index(name='visits')
-    if not visits.empty:
-        m = Prophet()
-        visits_prophet = visits.rename(columns={'visit_date':'ds','visits':'y'})
-        m.fit(visits_prophet)
-        future = m.make_future_dataframe(periods=30)
-        forecast = m.predict(future)
-        fig = px.line(forecast, x='ds', y='yhat', title='Predicted Patient Visits (Next 30 Days)')
-        st.plotly_chart(fig)
-    
-    st.subheader("Age Distribution")
-    if not patients_filtered.empty:
-        fig2 = px.histogram(patients_filtered, x="age", nbins=20, color="gender")
-        st.plotly_chart(fig2)
+    st.header("🤖 PHC Chatbot Assistant")
+    lang = st.selectbox("Select Language", list(LANG_MAP.keys()), index=0)
+    query = st.text_input("Ask a question (e.g. 'What’s the stock level for Paracetamol in Oyo PHC?')")
 
-    st.download_button(
-        label="Download Patients CSV",
-        data=patients_filtered.to_csv(index=False).encode('utf-8'),
-        file_name='patients.csv',
-        mime='text/csv'
-    )
+    if st.button("Ask"):
+        query_lower = query.lower()
 
-# ------------------------------
-# 3. HEALTH WORKERS TAB
-# ------------------------------
+        response = "I’m not sure how to answer that yet."
+
+        # Detect stock queries
+        if "stock" in query_lower:
+            for name in facilities_df["facility_name"]:
+                if name.lower() in query_lower:
+                    f_id = facilities_df[facilities_df["facility_name"] == name]["facility_id"].values[0]
+                    items = inventory_df[inventory_df["facility_id"] == f_id]
+                    if "paracetamol" in query_lower:
+                        items = items[items["item_name"].str.contains("paracetamol", case=False)]
+                    if not items.empty:
+                        response = "Here’s the stock status:\n" + items[["item_name", "stock_level", "reorder_level"]].to_string(index=False)
+                    break
+
+        st.markdown("### 💬 Response:")
+        st.write(translate_text(response, lang))
+
+# -------------------------------------------------
+# Forecasting Tab
+# -------------------------------------------------
 with tabs[2]:
-    st.header("Health Worker Overview")
-    workers_filtered = filter_by_facility(workers_df)
-    if not workers_filtered.empty:
-        workers_count = workers_filtered.groupby(['role']).size().reset_index(name='count')
-        fig = px.bar(workers_count, x='role', y='count', color='role', title="Staff Distribution")
-        st.plotly_chart(fig)
-        st.dataframe(workers_count)
+    st.header("📈 Disease Case Forecasting")
 
-    st.download_button(
-        label="Download Health Workers CSV",
-        data=workers_filtered.to_csv(index=False).encode('utf-8'),
-        file_name='health_workers.csv',
-        mime='text/csv'
-    )
+    disease = st.selectbox("Select Disease", diseases_df["disease"].unique())
+    data = diseases_df[diseases_df["disease"] == disease].groupby("month_dt")["cases_reported"].sum().reset_index()
 
-# ------------------------------
-# 4. INVENTORY TAB
-# ------------------------------
-with tabs[3]:
-    st.header("Inventory Monitoring")
-    inventory_filtered = filter_by_facility(inventory_df)
-    
-    # Color-coded alerts
-    def style_stock(row):
-        if row['stock_level'] <= row['reorder_level']:
-            return ['background-color: red']*len(row)
-        elif row['stock_level'] <= row['reorder_level']*1.5:
-            return ['background-color: yellow']*len(row)
-        else:
-            return ['background-color: green']*len(row)
-    
-    st.dataframe(inventory_filtered.style.apply(style_stock, axis=1))
-    
-    # Low stock alerts table
-    low_stock = inventory_filtered[inventory_filtered['stock_level'] <= inventory_filtered['reorder_level']]
-    if not low_stock.empty:
-        st.subheader("Low Stock Alerts")
-        st.dataframe(low_stock)
+    if len(data) > 2:
+        data.columns = ["ds", "y"]
+        model = Prophet()
+        model.fit(data)
+        future = model.make_future_dataframe(periods=6, freq="M")
+        forecast = model.predict(future)
+        st.plotly_chart(px.line(forecast, x="ds", y="yhat", title=f"Forecast for {disease} Cases"))
     else:
-        st.write("All items are sufficiently stocked ✅")
-    
-    st.download_button(
-        label="Download Inventory CSV",
-        data=inventory_filtered.to_csv(index=False).encode('utf-8'),
-        file_name='inventory.csv',
-        mime='text/csv'
-    )
-
-# ------------------------------
-# 5. DISEASE REPORTS TAB
-# ------------------------------
-with tabs[4]:
-    st.header("Disease Reports")
-    disease_filtered = filter_by_facility(disease_df)
-    
-    selected_disease = st.selectbox("Select Disease", ["All"] + list(disease_df['disease'].unique()))
-    if selected_disease != "All":
-        disease_filtered = disease_filtered[disease_filtered['disease'] == selected_disease]
-    
-    st.dataframe(disease_filtered)
-    
-    disease_trend = disease_filtered.groupby('month')['cases_reported'].sum().reset_index()
-    if not disease_trend.empty:
-        fig = px.line(disease_trend, x='month', y='cases_reported', title="Disease Trend")
-        st.plotly_chart(fig)
-
-    st.download_button(
-        label="Download Disease Reports CSV",
-        data=disease_filtered.to_csv(index=False).encode('utf-8'),
-        file_name='disease_reports.csv',
-        mime='text/csv'
-    )
-
-# ------------------------------
-# 6. CHATBOT TAB
-# ------------------------------
-with tabs[5]:
-    st.header("PHC Chatbot")
-    user_input = st.text_input("Ask a question about PHC data:")
-    selected_language = st.selectbox("Language", ["English", "Igbo", "Yoruba"])
-    
-    if user_input:
-        # Translate input to English
-        if selected_language != "English":
-            user_input_en = translator.translate(user_input, src=selected_language.lower(), dest='en').text
-        else:
-            user_input_en = user_input.lower()
-        
-        response = "I couldn't find an answer. Try asking about patients, stock, or disease trends."
-        
-        # Facility detection
-        facility_name = None
-        for name in facilities_df['facility_name'].unique():
-            if name.lower() in user_input_en:
-                facility_name = name
-                break
-        if not facility_name and selected_facility != "All":
-            facility_name = selected_facility
-
-        # Stock query
-        if "stock" in user_input_en:
-            if facility_name:
-                fid = facilities_df[facilities_df['facility_name'] == facility_name]['facility_id'].values[0]
-                inv = inventory_df[inventory_df['facility_id']==fid]
-                response = f"Stock levels for {facility_name}:\n" + "\n".join([f"{row['item_name']}: {row['stock_level']}" for idx,row in inv.iterrows()])
-        
-        # Patients query
-        elif "patients" in user_input_en:
-            if facility_name:
-                fid = facilities_df[facilities_df['facility_name'] == facility_name]['facility_id'].values[0]
-                count = patients_df[patients_df['facility_id']==fid].shape[0]
-                response = f"Total patients at {facility_name}: {count}"
-            else:
-                response = f"Total patients overall: {patients_df.shape[0]}"
-        
-        # Disease query
-        elif "disease" in user_input_en or "cases" in user_input_en:
-            if facility_name:
-                fid = facilities_df[facilities_df['facility_name'] == facility_name]['facility_id'].values[0]
-                cases = disease_df[disease_df['facility_id']==fid]['cases_reported'].sum()
-                response = f"Reported cases at {facility_name}: {cases}"
-            else:
-                cases = disease_df['cases_reported'].sum()
-                response = f"Reported cases overall: {cases}"
-        
-        # Translate back if needed
-        if selected_language != "English":
-            response = translator.translate(response, src='en', dest=selected_language.lower()).text
-        
-        st.text_area("Chatbot Response", value=response, height=200)
+        st.warning("Not enough data to forecast for this disease.")
