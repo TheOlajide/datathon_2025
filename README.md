@@ -51,6 +51,8 @@ Deactivated with:
 ```
 
 - dbt_transformations_datathon: This is the part responsible for transforming and modeling data in Amazon Redshift after Airflow has ingested to staging schema.
+- HOW_DATA_WAS_GENERATED.md: This is a file that explains how the data used for this report was generated.
+- Power BI Report - Team XYZ.pdf: This is a file that contains our powerbi dashboard report.
 
 
 Running the Pipeline
@@ -65,6 +67,10 @@ When project image has been buily, open the browser to the Airflow UI at http://
 
 - Run s3_to_redshift dag from the airflow UI, it then loads S3 data into Redshift staging schema.
 - Run dbt_transformations dag to activate dbt environment and executes dbt run.
+
+Report
+=================================
+To explore our findings and report based on the dataset, here is a link to our powerbi interactive dashboard. click [Team XYZ](https://app.powerbi.com/view?r=eyJrIjoiNzQ4Yjg2ZDEtMTMyOS00NzdkLTg4ZTUtNGNkYWIwMzhjNzQ4IiwidCI6ImQwMjZkZjkxLTg4MTYtNDIyNS04YmIyLWMzODJhOGUxZWYwYyJ9)
 
 Notes
 =================================
