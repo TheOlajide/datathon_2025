@@ -71,9 +71,12 @@ When project image has been buily, open the browser to the Airflow UI at http://
 - Run s3_to_redshift dag from the airflow UI, it then loads S3 data into Redshift staging schema.
 - Run dbt_transformations dag to activate dbt environment and executes dbt run.
 
-Report
-=================================
-To explore our findings and report based on the dataset, here is a link to our powerbi interactive dashboard. click [Team XYZ PHC report](https://app.powerbi.com/view?r=eyJrIjoiNzQ4Yjg2ZDEtMTMyOS00NzdkLTg4ZTUtNGNkYWIwMzhjNzQ4IiwidCI6ImQwMjZkZjkxLTg4MTYtNDIyNS04YmIyLWMzODJhOGUxZWYwYyJ9) 
+Exploratory Data Analysis and Report
+========================================
+- To explore our findings based on the dataset, here is a link to our powerbi interactive dashboard. click [Team XYZ PHC report](https://app.powerbi.com/view?r=eyJrIjoiNzQ4Yjg2ZDEtMTMyOS00NzdkLTg4ZTUtNGNkYWIwMzhjNzQ4IiwidCI6ImQwMjZkZjkxLTg4MTYtNDIyNS04YmIyLWMzODJhOGUxZWYwYyJ9).
+- To read an explicit report on our finding, click here [Data_Analysis_Report](Data_analysis_report.pdf)
+- To interact with our AI model click [AI Model](https://datathon2025-42evmbyj3noewwrz3bcj55.streamlit.app/)
+
 
 Notes
 =================================
